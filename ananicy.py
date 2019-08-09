@@ -6,6 +6,7 @@ import sys
 import time
 import subprocess
 import json
+import logging
 import _thread
 
 from enum import Enum, unique
@@ -228,8 +229,11 @@ class Ananicy:
             "apply_oom_score_adj": True,
             "apply_cgroup": True
         }
+        self.log_level = logging.WARNING
 
         self.load_config()
+        logging.basicConfig(format='%(message)s', level=self.log_level)
+        self.logger = logging.getLogger('root')
         if daemon:
             self.__check_disks_schedulers()
         else:
@@ -303,10 +307,24 @@ class Ananicy:
             msg = "Disk {} not use cfq/bfq scheduler IOCLASS/IONICE will not work on it".format(
                 disk)
             if self.verbose["check_disks_schedulers"]:
-                print(msg, flush=True)
+                self.logger.warning(msg)
 
     def __YN(self, val):
         return val.lower() in ("true", "yes", "1")
+
+    def __LOGLEVEL(self, val):
+        _ll2num = {
+            'critical': logging.CRITICAL,
+            'error': logging.ERROR,
+            'warning': logging.WARNING,
+            'info': logging.INFO,
+            'debug': logging.DEBUG,
+        }
+        if val in _ll2num.keys():
+            return _ll2num[val]
+        else:
+            print("WARNING: log_level is not set correctly in config file")
+            return logging.NOTSET
 
     def load_config(self):
         with open(self.config_dir + "ananicy.conf") as _config_file:
@@ -346,12 +364,15 @@ class Ananicy:
                     if "check_disks_schedulers" in col:
                         self.verbose["check_disks_schedulers"] = self.__YN(
                             self.__get_val(col))
+                    if "log_level" in col:
+                        self.log_level = self.__LOGLEVEL(
+                            self.__get_val(col))
 
     def load_cgroups(self):
         files = self.find_files(self.config_dir, '.*\\.cgroups')
         for file in files:
             if self.verbose["cgroup_load"]:
-                print("Load cgroup:", file)
+                self.logger.info("Load cgroup: " + file)
             with open(file) as _cgroups_file:
                 for line_number, line in enumerate(_cgroups_file, start=1):
                     try:
@@ -359,11 +380,11 @@ class Ananicy:
                     except Failure as e:
                         str = "File: {}, Line: {}, Error: {}".format(
                             file, line_number, e)
-                        print(str, flush=True)
+                        self.logger.error(str)
                     except json.decoder.JSONDecodeError as e:
                         str = "File: {}, Line: {}, Error: {}".format(
                             file, line_number, e)
-                        print(str, flush=True)
+                        self.logger.error(str)
 
     def get_cgroup_info(self, line):
         line = self.__strip_line(line)
@@ -406,7 +427,7 @@ class Ananicy:
         type_files = self.find_files(self.config_dir, '.*\\.types')
         for file in type_files:
             if self.verbose["type_load"]:
-                print("Load types:", file)
+                self.logger.info("Load types: " + file)
             with open(file) as _types_file:
                 for line_number, line in enumerate(_types_file, start=1):
                     try:
@@ -414,11 +435,11 @@ class Ananicy:
                     except Failure as e:
                         out = "File: {}, Line: {}, Error: {}".format(
                             file, line_number, e)
-                        print(out, flush=True)
+                        self.logger.error(out)
                     except json.decoder.JSONDecodeError as e:
                         out = "File: {}, Line: {}, Error: {}".format(
                             file, line_number, e)
-                        print(out, flush=True)
+                        self.logger.error(out)
 
     def get_rule_info(self, line):
         line = self.__strip_line(line)
@@ -463,7 +484,7 @@ class Ananicy:
         rule_files = self.find_files(self.config_dir, '.*\\.rules')
         for file in rule_files:
             if self.verbose["rule_load"]:
-                print("Load rules:", file)
+                self.logger.info("Load rules: " + file)
             with open(file) as _rules_file:
                 for line_number, line in enumerate(_rules_file, start=1):
                     try:
@@ -471,11 +492,11 @@ class Ananicy:
                     except Failure as e:
                         out = "File: {}, Line: {}, Error: {}".format(
                             file, line_number, e)
-                        print(out, flush=True)
+                        self.logger.error(out)
                     except json.decoder.JSONDecodeError as e:
                         out = "File: {}, Line: {}, Error: {}".format(
                             file, line_number, e)
-                        print(out, flush=True)
+                        self.logger.error(out)
 
         if not self.rules:
             raise Failure("No rules loaded")
@@ -574,7 +595,7 @@ class Ananicy:
         msg = "renice: {}[{}/{}] {} -> {}".format(name, p_tpid.pid, tpid,
                                                   c_nice, nice)
         if self.verbose["apply_nice"]:
-            print(msg, flush=True)
+            self.logger.info(msg)
 
     def ionice(self, tpid, ioclass, ionice, name: str):
         p_tpid = self.proc[tpid]
@@ -605,11 +626,11 @@ class Ananicy:
         if msg_ioclass and self.verbose["apply_ioclass"]:
             msg = "ioclass: {}[{}/{}] {} -> {}".format(
                 p_tpid.cmd, p_tpid.pid, tpid, c_ioclass, ioclass)
-            print(msg, flush=True)
+            self.logger.info(msg)
         if msg_ionice and self.verbose["apply_ionice"]:
             msg = "ionice: {}[{}/{}] {} -> {}".format(
                 p_tpid.cmd, p_tpid.pid, tpid, c_ionice, ionice)
-            print(msg, flush=True)
+            self.logger.info(msg)
 
     def oom_score_adj(self, tpid, oom_score_adj, name: str):
         p_tpid = self.proc[tpid]
@@ -621,7 +642,7 @@ class Ananicy:
             msg = "oom_score_adj: {}[{}/{}] {} -> {}".format(
                 p_tpid.cmd, p_tpid.pid, tpid, c_oom_score_adj, oom_score_adj)
             if self.verbose["apply_oom_score_adj"]:
-                print(msg, flush=True)
+                self.logger.info(msg)
 
     def sched_cmd(self, pid: int, sched: str, l_prio: int = None):
         arg_map = {
@@ -658,7 +679,7 @@ class Ananicy:
         msg = "sched: {}[{}/{}] {} -> {}".format(p_tpid.cmd, p_tpid.pid, tpid,
                                                  c_sched, sched)
         if self.verbose["apply_sched"]:
-            print(msg)
+            self.logger.info(msg)
 
     def apply_rule(self, tpid, rule, rule_name):
         if rule.get("nice"):
@@ -681,7 +702,7 @@ class Ananicy:
             msg = "Cgroup: {}[{}] added to {}".format(
                 rule_name, tpid, cgroup_ctrl.name)
             if self.verbose["apply_cgroup"]:
-                print(msg)
+                self.logger.info(msg)
 
     def process_tpid(self, tpid):
         # proc entry
